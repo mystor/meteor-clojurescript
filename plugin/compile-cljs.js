@@ -11,6 +11,12 @@ function start_lein() {
   if (global.lein_running)
     return;
 
+  try {
+    fs.statSync(path.join(process.cwd(), '.cljs-build'));
+  } catch (e) {
+    fs.mkdirSync(path.join(process.cwd(), '.cljs-build'));
+  }
+
   global.lein_path = path.join(process.cwd(), '.cljs-build');
   
   var lein = global.lein = cp.spawn('lein', ['cljsbuild', 'auto'], {
