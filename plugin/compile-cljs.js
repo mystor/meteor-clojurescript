@@ -49,20 +49,6 @@ var cljsc = (global.cljsc = global.cljsc || {
     return path.join(cljsc.root(), '.cljs-build');
   },
 
-  /*****************************************
-   * Start the clojurescript build process *
-   *****************************************/
-  init: function() {
-    try {
-      fs.statSync(cljsc.buildroot());
-      cljsc.start_lein();
-    } catch (e) {
-      fs.mkdirSync(cljsc.buildroot());
-      // Don't bother starting lein, it will be started
-      // once project.clj is compiled
-    }
-  },
-
   /********************************************
    * Launch the longrunning leiningen process *
    ********************************************/
@@ -73,7 +59,7 @@ var cljsc = (global.cljsc = global.cljsc || {
 
     // Start leiningen
     var lein = cljsc.lein.process = cp.spawn('lein', ['cljsbuild', 'auto'],{
-      cwd: cljsc.buildroot()
+      cwd: cljsc.root()
     });
     cljsc.lein.running = true;
 
@@ -156,14 +142,8 @@ var cljsc = (global.cljsc = global.cljsc || {
           { encoding: 'utf-8' });
 
       if (''+srcsha1 === ''+destsha1)
-        return;
+        return; // No change, abort
     } catch (e) {}
-
-    // Perform replacements
-    src = src.replace('{CLIENT:SOURCE-PATHS}', JSON.stringify(['../client']));
-    src = src.replace('{CLIENT:OUTJS}', JSON.stringify('client.js'));
-    src = src.replace('{SERVER:SOURCE-PATHS}', JSON.stringify(['../server']));
-    src = src.replace('{SERVER:OUTJS}', JSON.stringify('server.js'));
 
     // Shut down the current lein process
     if (cljsc.lein.running) {
@@ -173,11 +153,10 @@ var cljsc = (global.cljsc = global.cljsc || {
 
     // Clean the directory
     var f = new Future;
-    cp.exec('lein cljsbuild clean', { cwd: cljsc.buildroot() }, function() { f.return(); });
+    cp.exec('lein cljsbuild clean', { cwd: cljsc.root() }, function() { f.return(); });
     f.wait();
 
     // Write out the new file
-    fs.writeFileSync(path.join(cljsc.buildroot(), 'project.clj'), src);
     fs.writeFileSync(path.join(cljsc.buildroot(), 'project.clj.sha1'), ''+srcsha1);
 
     // Resume the lein process
@@ -189,4 +168,4 @@ var cljsc = (global.cljsc = global.cljsc || {
 Plugin.registerSourceHandler('clj', cljsc.compile_projectclj);
 Plugin.registerSourceHandler('cljsbuild', cljsc.inject);
 
-cljsc.init();
+cljsc.start_lein();
