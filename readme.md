@@ -41,6 +41,9 @@ Create a `project.clj` file and add the following:
 ### Now just add your code!
 Note: You can only add code in the `client/` and `server/` folders right now. Support for other folders will come later on.
 
+## I ran it and error showed everywhere? Why?
+You will see constant errors.  Its really high quality okay?
+
 ## No, but really, How?
 
 meteor-clojurescript takes advantage of how build plugins are executed in the `meteor` process (rather than the server process) to invoke a subprocess (`lein cljsbuild auto`) when the program starts.  This process is invoked in the `.cljs-build` folder, where a compiled copy of project.clj is created.  Once compilation is complete, `a.cljsbuild` is changed, causing meteor to read in the compiled code again and restart.

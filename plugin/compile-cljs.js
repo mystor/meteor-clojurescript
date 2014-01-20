@@ -4,117 +4,189 @@ var cp = Npm.require('child_process');
 var crypto = Npm.require('crypto');
 var Future = Npm.require('fibers/future');
 
-/********************************
- * Start ClojureScript Compiler *
- ********************************/
-function start_lein() {
-  if (global.lein_running)
-    return;
+var execFuture = Future.wrap(cp.exec);
 
-  try {
-    fs.statSync(path.join(process.cwd(), '.cljs-build'));
-  } catch (e) {
-    fs.mkdirSync(path.join(process.cwd(), '.cljs-build'));
-  }
+var cljsc = (global.cljsc = global.cljsc || {
+  lein: {
+    running: false,
+    process: null
+  },
 
-  global.lein_path = path.join(process.cwd(), '.cljs-build');
-  
-  var lein = global.lein = cp.spawn('lein', ['cljsbuild', 'auto'], {
-    cwd: path.join(process.cwd(), '.cljs-build')
-  });
-
-  global.lein_running = true;
-
-  lein.stdout.on('data', function(data) {
-    if ((''+data).indexOf('Successfully compiled') !== -1) {
-      // We have compiled a file!
-      fs.writeFileSync(path.join(process.cwd(), 'a.cljsbuild'), ''+Math.random());
+  /*********
+   * PATHS *
+   *********/
+  is_app_dir: function(filepath) {
+    // From meteor/tools/file.js commit #3177d9ad416ae97a98a2b8c4b2b40a9fc03f6b9c
+    try {
+      return fs.statSync(path.join(filepath, '.meteor', 'packages')).isFile();
+    } catch (e) {
+      return false;
     }
-    process.stdout.write('(lein): ' + data);
-  });
+  },
 
-  lein.stderr.on('data', function(data) {
-    process.stderr.write('ERROR (lein): ' + data);
-  });
+  root: function() {
+    // Get the meteor root directory
+    if (cljsc._root)
+      return cljsc._root;
 
-  lein.on('close', function(code) {
-    console.log('leiningen exited with status=' + code);
-    global.lein_running = false;
-  });
-}
-start_lein();
+    var test_dir = process.cwd();
+    while (test_dir) {
+      if (cljsc.is_app_dir(test_dir))
+        break;
 
-/************************************
- * Inject Compiled CLJS Into Meteor *
- ************************************/
-Plugin.registerSourceHandler('cljsbuild', function(compileStep) {
-  var target = compileStep.archMatches('browser') ? 'client' : 'server';
+      var new_dir = path.dirname(test_dir);
+      if (new_dir === test_dir)
+        return null;
 
-  var js = fs.readFileSync(path.join(global.lein_path, target + '.js'), 
-    { encoding: 'utf-8' });
+      test_dir = new_dir;
+    }
 
-  // Remove the shebang on the server
-  if (target === 'server') {
-    js = js.substring(js.indexOf('\n'));
-    js = 'var require = Npm.require;\n' + js;
-  }
+    cljsc._root = test_dir;
+    return cljsc._root;
+  },
 
-  compileStep.addJavaScript({
-    path: compileStep.inputPath + '.js',
-    sourcePath: compileStep.inputPath,
-    data: js,
-    bare: target === 'client'
-  });
-});
+  buildroot: function() {
+    return path.join(cljsc.root(), '.cljs-build');
+  },
 
+  /*****************************************
+   * Start the clojurescript build process *
+   *****************************************/
+  init: function() {
+    try {
+      fs.statSync(cljsc.buildroot());
+      cljsc.start_lein();
+    } catch (e) {
+      fs.mkdirSync(cljsc.buildroot());
+      // Don't bother starting lein, it will be started
+      // once project.clj is compiled
+    }
+  },
 
-
-/*****************************************
- * Restart lein when project.clj changed *
- *****************************************/
-Plugin.registerSourceHandler('clj', function(compileStep) {
-  // Only process project.clj
-  if (!path.basename(compileStep._fullInputPath) === 'project.clj')
-    return;
-
-  var src = compileStep.read().toString('utf8');
-
-  // Check if project.clj has really changed
-  var hasher = crypto.createHash('sha1');
-  hasher.update(src);
-  var srcsha1 = hasher.digest('hex');
-
-  try {
-    var destsha1 = fs.readFileSync(
-        path.join(global.lein_path, 'project.clj.sha1'),
-        { encoding: 'utf-8' });
-
-    if (''+srcsha1 === ''+destsha1)
+  /********************************************
+   * Launch the longrunning leiningen process *
+   ********************************************/
+  start_lein: function() {
+    // Don't start lein multiple times
+    if (cljsc.lein.running)
       return;
-  } catch (e) {}
 
-  // Perform replacements
-  src = src.replace('{CLIENT:SOURCE-PATHS}', JSON.stringify(['../client']));
-  src = src.replace('{CLIENT:OUTJS}', JSON.stringify('client.js'));
-  src = src.replace('{SERVER:SOURCE-PATHS}', JSON.stringify(['../server']));
-  src = src.replace('{SERVER:OUTJS}', JSON.stringify('server.js'));
+    // Start leiningen
+    var lein = cljsc.lein.process = cp.spawn('lein', ['cljsbuild', 'auto'],{
+      cwd: cljsc.buildroot()
+    });
+    cljsc.lein.running = true;
 
-  // Shut down the current lein process
-  global.lein.kill();
-  global.lein_running = false;
+    // Listen to the program output
+    lein.stdout.on('data', function(data) {
+      if ((''+data).indexOf('Successfully compiled') !== -1)
+        fs.writeFileSync(path.join(cljsc.root(), 'a.cljsbuild'), Math.random());
 
-  // Clean the directory
-  var f = new Future;
-  cp.exec('lein cljsbuild clean', { cwd: global.lein_path }, function(e,so,se) {
-    f.return();
-  });
-  f.wait();
+      process.stdout.write('(lein): ' + data);
+    });
 
-  // Write out the new file
-  fs.writeFileSync(path.join(global.lein_path, 'project.clj'), src);
-  fs.writeFileSync(path.join(global.lein_path, 'project.clj.sha1'), ''+srcsha1);
+    lein.stderr.on('data', function(data) {
+      process.stderr.write('ERROR (lein): ' + data);
+    });
 
-  // Resume the lein process
-  start_lein();
+    // Report when leiningen closes
+    lein.on('close', function(code) {
+      process.stdout.write('Leiningen exited (status=' + code + ')');
+      cljsc.lein.running = false;
+    });
+  },
+
+  /******************************************
+   * Stop the longrunning leiningen process *
+   ******************************************/
+  stop_lein: function() {
+    // Send a SIGTERM to the leiningen process
+    if (cljsc.lein.running)
+      cljsc.lein.process.kill();
+  },
+
+  /***************************************************************
+   * Inject compiled clojurescript into the meteor server/client *
+   * Should be called during a compile step                      *
+   ***************************************************************/
+  inject: function(compileStep) {
+    var target = compileStep.archMatches('browser') ? 'client' : 'server';
+
+    try {
+      var js = fs.readFileSync(
+          path.join(cljsc.buildroot(), target + '.js'), { encoding: 'utf-8' });
+
+      // Remove the shebang on the server
+      // We also need to redefine require, as clojurescript wants it
+      if (target === 'server') {
+        js = js.substring(js.indexOf('\n'));
+        js = 'var require = Npm.require;\n' + js;
+      }
+
+      compileStep.addJavaScript({
+        path: compileStep.inputPath + '.js',
+        sourcePath: compileStep.inputPath,
+        data: js,
+        bare: target === 'client'
+      });
+    } catch (e) {
+      console.log('Compiled code for target: ' + target + ' could not be found');
+      console.log('Maybe it is compiling right now?');
+    }
+  },
+
+  /******************************************
+   * Recompile project.clj and restart lein *
+   *****************************************/
+  compile_projectclj: function(compileStep) {
+    // Only process project.clj
+    if (!path.basename(compileStep._fullInputPath) === 'project.clj')
+      return;
+
+    var src = compileStep.read().toString('utf8');
+
+    // Check if project.clj has really changed
+    var hasher = crypto.createHash('sha1');
+    hasher.update(src);
+    var srcsha1 = hasher.digest('hex');
+
+    try {
+      var destsha1 = fs.readFileSync(
+          path.join(cljsc.buildroot(), 'project.clj.sha1'),
+          { encoding: 'utf-8' });
+
+      if (''+srcsha1 === ''+destsha1)
+        return;
+    } catch (e) {}
+
+    // Perform replacements
+    src = src.replace('{CLIENT:SOURCE-PATHS}', JSON.stringify(['../client']));
+    src = src.replace('{CLIENT:OUTJS}', JSON.stringify('client.js'));
+    src = src.replace('{SERVER:SOURCE-PATHS}', JSON.stringify(['../server']));
+    src = src.replace('{SERVER:OUTJS}', JSON.stringify('server.js'));
+
+    // Shut down the current lein process
+    if (cljsc.lein.running) {
+      cljsc.lein.process.kill();
+      cljsc.lein.running = false;
+    }
+
+    // Clean the directory
+    var f = new Future;
+    cp.exec('lein cljsbuild clean', { cwd: cljsc.buildroot() }, function() { f.return(); });
+    f.wait();
+
+    // Write out the new file
+    fs.writeFileSync(path.join(cljsc.buildroot(), 'project.clj'), src);
+    fs.writeFileSync(path.join(cljsc.buildroot(), 'project.clj.sha1'), ''+srcsha1);
+
+    // Resume the lein process
+    cljsc.start_lein();
+  }
 });
 
+// Register the source handlers
+Plugin.registerSourceHandler('clj', cljsc.compile_projectclj);
+Plugin.registerSourceHandler('cljsbuild', cljsc.inject);
+
+cljsc.init();
