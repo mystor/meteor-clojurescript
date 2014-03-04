@@ -78,8 +78,7 @@ function lein_start() {
 Plugin.registerSourceHandler('cjs', function (compileStep) {
   // Check the current target
   var target = compileStep.archMatches('browser') ? 'client' : 'server';
-  if (target === 'server')
-    return;
+
   var re = RegExp(target);
 
   // Make sure we're looking at the right file
@@ -90,16 +89,40 @@ Plugin.registerSourceHandler('cjs', function (compileStep) {
 
   // Perform some modifications
   if (target === 'server') {
+    // Remove the shebang
     src = src.substring(src.indexOf('\n'));
+
+    // Nodejs targets require `require` to be defined
     src = 'var require = Npm.require;' + src;
-  } else {
-    // Remove the last two lines (sourceMap)
-    src = src.replace(/[\r\n][^\r\n]*[\r\n][^\r\n]*$/, '');
+  }
+
+  // Strip the source map line (if it exists)
+  src = src.replace(/^\/\/# sourceMappingURL.*$/m, '');
+
+  try {
+    var srcmap = fs.readFileSync(compileStep._fullInputPath + '.map',
+                                 { encoding: 'utf8' });
+    var parsedMap = JSON.parse(srcmap);
+
+    // Clojurescript doesn't inline the source code for its source maps,
+    // which Meteor expects source maps to do.  Meteor will not serve the source
+    // files to the client, so if the source files are not embedded, the client
+    // will simply ignore the source maps.  Therefore, we manually inline the
+    // source maps here.
+    parsedMap.sourcesContent = parsedMap.sources.map(function(pth) {
+      return fs.readFileSync(path.join(path.dirname(compileStep._fullInputPath), pth),
+                             { encoding: 'utf8' });
+    });
+
+    srcmap = JSON.stringify(parsedMap);
+  } catch (e) {
+    console.warn('No source map found for file: ' + compileStep.inputPath);
   }
 
   compileStep.addJavaScript({
     path: compileStep.inputPath + '.js',
     sourcePath: compileStep.inputPath,
+    sourceMap: srcmap,
     data: src,
     bare: false
   });
