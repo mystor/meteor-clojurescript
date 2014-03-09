@@ -1,79 +1,71 @@
-# Clojurescript for Meteor
+# Meteor Clojurescript
 
-    Clojurescript is a Clojure to JS compiler
+> Clojurescript is a Clojure to JS compiler
+
+Meteor-Clojurescript is a Meteor package which allows you to use [clojurescript](https://github.com/clojure/clojurescript) in your Meteor projects.
 
 ## Installation
 
-Meteor-Clojurescript is not on atmosphere yet, as it is still missing important features.  Thus, you need to install it from github.
+Meteor-Clojurescript requires [leiningen](http://leiningen.org/) to be installed and on your path.
 
+### From Atmosphere
+```bash
+mrt add clojurescript
+```
+
+### From Github
 ```bash
 mkdir packages
 git clone https://github.com/mystor/meteor-clojurescript packages/clojurescript
 meteor add clojurescript
 ```
 
-Meteor clojurescript will not run correctly unless you have leiningen installed and on your path.
-
 ## Usage
 
-To use Meteor-Clojurescript, add a project.clj file at the root of your project (project.clj will be ignored in other locations for various reasons).
-
-This project.clj should look something like this:
-
+Place a project.clj at the root of your project. It should look something like this:
 ```clojure
-(defproject my-meteor-cljs-project "0.0.1"
+(defproject my-project-name "0.0.1"
+  :dependencies [[org.clojure/clojurescript "0.0-2173"]]
   :plugins [[lein-cljsbuild "1.0.1"]]
   :cljsbuild {
-        :builds {
-          :client
-          {:source-paths ["src/cljs/client", "src/cljs/shared"]
-           :compiler {:output-to "client.cjs"  ;; Must be in project, contain 'client', extension 'cjs'
-                      :output-dir ".cljsbuild/target-client"  ;; Must be ignored by Meteor
-                      :optimizations :simple  ;; Currently only :whitespace and :simple are supported
-                      :pretty-print true}}
-          :server
-          {:source-paths ["src/cljs/server", "src/cljs/shared"]
-           :compiler {:output-to "server.cjs"  ;; Must be in project, contain 'server', extension 'cjs'
-                      :output-dir ".cljsbuild/target-server;; Must be ignored by Meteor
-                      :target :nodejs
-                      :optimizations :simple  ;; Currently, on the server, only :simple is supported
-                      :pretty-print true}}}})
+    :builds {
+      :client
+      {:source-paths ["client"] ; The directories to include on the client
+       :compiler {:output-to "bin/client.cjs" ; Path must contain 'client' and have extension 'cjs'
+                  :output-dir "bin/.build/client" ; Must be a folder ignored by Meteor
+                  :source-map "bin/client.cjs.map" ; Must be the :output-to path, with an added '.map'
+                  :optimizations :simple ; Use :whitespace, :simple, or :advanced
+                  :pretty-print true}}
+      :server
+      {:source-paths ["server"] ; The directories to include on ths server
+       :compiler {:output-to "bin/server.cjs" ; Path must contain 'server' and have extension 'cjs'
+                  :output-dir "bin/.build/server" ; Must be a folder ignored by Meteor
+                  :source-map "bin/server.cjs.map" ; Must be the :output-to path, with an added '.map'
+                  :optimizations :simple ; Use :simple, or :advanced
+                  :target :nodejs ; Necessary
+                  :pretty-print true}}}})
 ```
 
-When meteor is run, it will start the leiningen process (`lein cljsbuild auto`), and will register a file listener for `.cjs` files.
-Whenever a `.cjs` file is detected, it will check if it is for the client or server (by checking if the text is in the relative path),
-and then will add it like normal.
+Meteor Clojurescript runs the equivalent of `lein cljsbuild auto` when you run Meteor, and then transforms the `.cjs` files, adding them to the Meteor asset pipeline.
+
+If you change your project.clj file, it may not register your changes immediately. You can call `lein cljsbuild clean` to clean leiningen's output files, forcing a full recompile.
 
 ## Limitations
 
-### Closure Compiler
+### Advanced Compilation
 
-Clojurescript has been designed to take advantage of Google's Closure compiler.  This compiler enables dead-code elimination and munging of
-javascript variables.  Clojurescript code is safe to run through Closure's advanced compilation, however, calls out to Meteor will be munged, and will
-not work as expected.
+Advanced compilation is supported by Clojurescript, through the use of Google's Closure compiler. Unfortunately, nobody (as far as I know) has written an externs file for Meteor, which means that all calls to the core libraries will be munged. Because of this, `:advanced` compilation is not currently recommended.
 
-At some point, I or someone else will probably write an externs file for Meteor core, which will allow for the use of advanced optimizations, but for now,
-we have to stick with simple or whitespace.
+### Minimum Compilation levels
 
-Clojurescript on the server does not support any optimization level less than simple right now, so use simple on the server.
+Meteor-Clojurescript will not concatinate output files for you, so the compiler has to have already done it. Thus, the `:none` optimization level is not supported.
 
-Meteor-Clojurescript assumes that concatination has already been done when it reads the output file. Thus, a non-none level of optimizations is required.
-
-### Source Maps
-
-I have tried using source maps, but for some reason, they cause the javascript added to the process to be mangled.  Once I isolate the problem I will probably
-either get source maps working, or submit a bug report to Meteor.
+In addition, the `:nodejs` target does not currently work correctly with `:whitespace` or `:none`, so `:simple` is recommended on the server. 
 
 ### Meteor Packages
 
-This package will completely ignore meteor packages (it requires the relative path for project.clj to be `"project.clj"`).  It doesn't make too much sense to use this compilation step within a package, as it will then not interop very well with other clojurescript code (2x closure libraries and clojure core? eww).
+Clojurescript is non-ideal for Meteor package development, and thus no effort has been made to make such development easy, or even possible, with Meteor Clojurescript.
 
-If you want to make packages for use with this plugin, I recommend using the standard clojurescript packaging routes, and taking advantage of leiningen, rather than going through the meteor packages system.
+Clojurescript produces a large amount of boilerplate, and it would be inefficient to duplicate it across multiple packages. In addition, pre-compiled clojurescript code doesn't interop as well with other clojurescript code.
 
-
-## TODO
-
-[ ] Source Map Support
-[ ] Meteor Core externs file
-[ ] Less hacky way to add code than `.cjs` files
-[ ] Clojurescript-style bindings for meteor features
+For clojurescript package development, I recommend using the standard clojurescript packaging system, with leiningen, rather than using Meteor's packages.
