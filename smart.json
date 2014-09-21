@@ -1,9 +1,0 @@
-{
-    "name": "clojurescript",
-    "description": "Clojure to Javascript compiler",
-    "homepage": "https://github.com/mystor/meteor-clojurescript",
-    "author": "Michael Layzell (http://github.com/mystor)",
-    "version": "0.1.0",
-    "git": "https://github.com/mystor/meteor-clojurescript.git"
-}
-

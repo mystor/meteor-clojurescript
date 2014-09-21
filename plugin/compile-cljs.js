@@ -77,7 +77,7 @@ function lein_start() {
  */
 Plugin.registerSourceHandler('cjs', function (compileStep) {
   // Check the current target
-  var target = compileStep.archMatches('browser') ? 'client' : 'server';
+  var target = compileStep.archMatches('web') ? 'client' : 'server';
 
   var re = RegExp(target);
 
